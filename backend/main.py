@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -20,6 +20,28 @@ app.add_middleware(
 )
 
 
+def _apply_cors_headers(request: Request, response: Response) -> Response:
+    origin = request.headers.get("origin")
+    response.headers["Access-Control-Allow-Origin"] = origin or "*"
+    response.headers["Vary"] = "Origin"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = request.headers.get(
+        "access-control-request-headers",
+        "Content-Type, Authorization",
+    )
+    response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+
+@app.middleware("http")
+async def force_cors_headers(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return _apply_cors_headers(request, Response(status_code=204))
+
+    response = await call_next(request)
+    return _apply_cors_headers(request, response)
+
+
 @app.get("/")
 def read_root():
     return {"name": "consumer-signal-ai", "status": "ok"}
@@ -28,6 +50,11 @@ def read_root():
 @app.get("/items/{item_id}")
 def read_item(item_id: int, q: str | None = None):
     return {"item_id": item_id, "q": q}
+
+
+@app.options("/{full_path:path}")
+async def options_preflight(full_path: str, request: Request):
+    return _apply_cors_headers(request, Response(status_code=204))
 
 
 @app.post("/analyze", response_model=PipelineResult)

@@ -27,6 +27,7 @@ const customSelectRoots = Array.from(document.querySelectorAll("[data-custom-sel
 const API_BASE_STORAGE_KEY = "consumer-signal-ai-api-base-url";
 const ANALYSIS_HISTORY_STORAGE_KEY = "consumer-signal-ai-analysis-history";
 const MAX_HISTORY_ITEMS = 8;
+const DEFAULT_REMOTE_API_BASE_URL = "https://toy-consumer-signal-back.vercel.app/";
 let progressSequence = 0;
 
 function getDefaultApiBaseUrl() {
@@ -36,19 +37,27 @@ function getDefaultApiBaseUrl() {
     return "http://127.0.0.1:8000";
   }
   if (protocol === "http:" || protocol === "https:") {
-    return "";
+    return DEFAULT_REMOTE_API_BASE_URL;
   }
   return "";
 }
 
 function restoreSavedApiBaseUrl() {
   const saved = window.localStorage.getItem(API_BASE_STORAGE_KEY);
+  const defaultValue = getDefaultApiBaseUrl();
+
   if (saved) {
+    if (saved === "/api") {
+      apiBaseUrlInput.value = defaultValue;
+      saveApiBaseUrl();
+      return;
+    }
+
     apiBaseUrlInput.value = saved;
     return;
   }
 
-  apiBaseUrlInput.value = getDefaultApiBaseUrl();
+  apiBaseUrlInput.value = defaultValue;
 }
 
 function saveApiBaseUrl() {
@@ -598,7 +607,7 @@ function fillSample() {
 async function handleSubmit(event) {
   event.preventDefault();
 
-  const apiBaseUrl = apiBaseUrlInput.value.trim().replace(/\/+$/, "");
+  const apiBaseUrl = (apiBaseUrlInput.value.trim() || getDefaultApiBaseUrl()).replace(/\/+$/, "");
   const payload = {
     raw_query: rawQueryInput.value.trim(),
     product_url: productUrlInput.value.trim() || null,
