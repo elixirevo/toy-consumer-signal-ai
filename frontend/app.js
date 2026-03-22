@@ -29,11 +29,26 @@ const ANALYSIS_HISTORY_STORAGE_KEY = "consumer-signal-ai-analysis-history";
 const MAX_HISTORY_ITEMS = 8;
 let progressSequence = 0;
 
+function getDefaultApiBaseUrl() {
+  const { protocol, hostname } = window.location;
+  const isLocalHost = hostname === "127.0.0.1" || hostname === "localhost";
+  if (isLocalHost) {
+    return "http://127.0.0.1:8000";
+  }
+  if (protocol === "http:" || protocol === "https:") {
+    return "";
+  }
+  return "";
+}
+
 function restoreSavedApiBaseUrl() {
   const saved = window.localStorage.getItem(API_BASE_STORAGE_KEY);
   if (saved) {
     apiBaseUrlInput.value = saved;
+    return;
   }
+
+  apiBaseUrlInput.value = getDefaultApiBaseUrl();
 }
 
 function saveApiBaseUrl() {
