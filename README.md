@@ -1,5 +1,15 @@
 # AI 소비 심리 분석기
 
+## 사용
+
+```zsh
+# 패키지 설치
+cd backend && uv sync
+
+# 서버 실행
+sh scripts/run_dev.sh
+```
+
 ## 개요
 
 - 기술 스택: OpenAI API, Python
