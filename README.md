@@ -1,217 +1,278 @@
-# Consumer Signal AI
+# AI 소비 심리 분석기
 
-AI 소비 심리 분석기에 제시한 5가지 패턴을 조합하면 아래와 같은 구조가 됩니다.
+## 개요
 
-## 사용 스택
+- 기술 스택: OpenAI API, Python
+- 목적: 제품명 또는 링크 입력 → 리뷰 수집 → 감정 / 구매이유 / 불만 분석 → 네거티브 시 경쟁 제품 추천
 
-- OpenAI API
-- FaseAPI
-- HTML, JS, CSS
-
-## 전체 파이프라인 설계
+## 전체 파이프라인
 
 ```text
-[사용자 입력: 제품명]
-        ↓
-  ① 라우터 LLM
-  (분석 전략 결정)
-        ↓
-  ② 오케스트레이터 LLM
-  (수집 태스크 분해)
-        ↓
-  ③ 병렬 수집 Workers
-  [네이버] [쿠팡] [Reddit] [커뮤니티]
-        ↓
-  ④ 프롬프트 체이닝
-  Clean → Extract → Structure
-        ↓
-  ⑤ 병렬 분석 Workers
-  [감정] [구매이유] [불만] [키워드]
-        ↓
-  ⑥ 어그리게이터 LLM
-  (종합 리포트 생성)
-        ↓
-  ⑦ 평가 LLM
-  (품질 검증 & 재시도)
+[유저 입력: 제품명 or URL]
+          ↓
+   ① ROUTER LLM
+   분석 전략 결정
+          ↓
+   ② ORCHESTRATOR LLM
+   수집 태스크 분해
+          ↓
+   ③ 병렬 웹 수집 Workers
+   [OpenAI Web Search Tool]
+          ↓
+   ④ 프롬프트 체이닝 전처리
+   Clean → Normalize → Filter
+          ↓
+   ⑤ 병렬 분석 Workers
+   [감정] [구매이유] [불만]
+          ↓
+   ⑥ AGGREGATOR LLM
+   종합 평가 판정
+          ↓
+      ┌───┴───┐
+   [긍정/중립]  [네거티브]
+      ↓           ↓
+   최종 리포트   ⑦ 경쟁제품 탐색
+              [수집 → 분석 → 비교]
+                   ↓
+              최종 비교 리포트
 ```
 
-## ① 라우터: 분석 전략 결정
+## ① 라우터 (Router LLM)
 
-사용자 입력을 받아 어떤 소스를 얼마나 수집할지 결정하는 가벼운 LLM입니다.
+역할: 유저 입력을 받아 전체 분석 전략을 결정하는 첫 번째 진입점
+
+### 입력 구조
 
 ```python
-# gpt-4o-mini 로 충분 (가볍고 빠름)
-ROUTER_PROMPT = """
-제품명과 카테고리를 분석해서 최적의 리뷰 수집 전략을 JSON으로 반환하세요.
-- 국내 제품 → 네이버/쿠팡 우선
-- 글로벌 제품 → Reddit/글로벌 사이트 포함
-- B2B 제품 → 전문 커뮤니티 포함
-"""
+user_input = {
+    "raw_query": "갤럭시 S25 울트라 리뷰 분석해줘",
+    "product_url": "https://...",
+    "options": {
+        "depth": "deep",       # "quick" | "deep"
+        "date_range": "3months"
+    }
+}
+```
 
+### 출력 구조
+
+```python
 class RoutingStrategy(BaseModel):
-    sources: list[str]        # ["naver", "coupang", "reddit"]
-    review_count: int         # 각 소스 당 수집 수
-    analysis_depth: str       # "quick" | "deep"
-    language: str             # "ko" | "en" | "both"
+    product_name: str
+    product_category: str
+    brand: str
+    sources: list[str]             # ["naver_shopping", "coupang", "reddit"]
+    review_count_per_source: int   # 50
+    depth: str                     # "quick" | "deep"
+    language: str                  # "ko" | "en" | "both"
+    date_range: str                # "3months"
 ```
 
-## ② 오케스트레이터: 태스크 분해
+- 모델: `gpt-4o-mini`
 
-라우터 결과를 받아 구체적인 수집 태스크를 동적으로 생성합니다.
+### 라우터 전략 규칙
+
+- 국내 브랜드 → `naver_shopping`, `coupang` 우선
+- 글로벌 브랜드 → `reddit`, `amazon` 추가
+- 카테고리별 소스 자동 추가
+- 예: 화장품 → `oliveyoung`, 가전 → `danawa`
+
+## ② 오케스트레이터 (Orchestrator LLM)
+
+역할: 라우팅 전략을 받아 구체적인 검색 쿼리 태스크 목록으로 분해
 
 ```python
-# 오케스트레이터가 동적으로 worker 수를 결정
-# (병렬화와의 차이: 태스크 수가 런타임에 결정됨)
 class CollectionTask(BaseModel):
-    source: str           # "naver_shopping"
-    query: str            # "아이폰 16 리뷰"
-    target_count: int     # 50
-    priority: int         # 1(높음) ~ 3(낮음)
+    source: str        # "naver_shopping"
+    query: str         # "갤럭시 S25 울트라 사용 후기"
+    target_count: int  # 50
 
-# LangGraph Send API로 동적 워커 분기
-def orchestrate(state):
-    tasks = orchestrator_llm.invoke(state["strategy"])
-    return [Send("collect_worker", task) for task in tasks]
+class OrchestratorOutput(BaseModel):
+    tasks: list[CollectionTask]
+    estimated_reviews: int
 ```
 
-## ③ 병렬 수집 Workers
+- 모델: `gpt-4o-mini`
 
-오케스트레이터가 만든 태스크를 동시에 실행합니다.
+## ③ 병렬 웹 수집 Workers
 
-```text
-[네이버 Worker]   [쿠팡 Worker]   [Reddit Worker]   [DC/뽐뿌 Worker]
-      ↓                 ↓               ↓                   ↓
-  50개 리뷰          50개 리뷰       30개 리뷰            20개 리뷰
-                         └──────────────┴──────────────────┘
-                                    Aggregator
-                                  (150개 raw 리뷰)
-```
+### 수집 방식
 
-## ④ 프롬프트 체이닝: 전처리 파이프라인
-
-수집된 리뷰를 LLM1 → LLM2 → LLM3 순서로 정제합니다.
-
-```text
-LLM1 (Clean Agent)
-"HTML/이모지 제거, 중복 제거, 언어 감지"
-        ↓ 정제된 텍스트
-LLM2 (Normalize Agent)
-"구어체 → 표준어, 신조어 해석, 맥락 보완"
-        ↓ 정규화된 텍스트
-LLM3 (Filter Agent)
-"광고성 리뷰 필터링, 신뢰도 점수 부여"
-        ↓ 신뢰도 높은 리뷰만
-```
-
-각 단계 출력이 다음 단계 입력이 되며, 각 LLM은 한 가지 역할만 담당합니다.
-
-## ⑤ 병렬 분석 Workers: 핵심 분석
-
-전처리된 리뷰를 4개 분석 워커가 동시에 처리합니다.
+- 병렬 웹 수집은 외부 검색 API를 따로 붙이지 않고 `OpenAI API`의 웹 검색 도구로 처리합니다.
+- 각 워커는 검색 질의를 하나씩 받아 웹에서 리뷰, 후기, 비교 글, 커뮤니티 반응을 찾습니다.
+- 수집 대상 소스는 라우터가 정하고, 실제 검색 실행은 OpenAI Responses API가 담당합니다.
 
 ```python
-# 4개 워커 동시 실행
-async def run_parallel_analysis(reviews):
-    results = await asyncio.gather(
-        sentiment_worker(reviews),       # 감정 분석
-        purchase_reason_worker(reviews), # 구매 이유 추출
-        complaint_worker(reviews),       # 불만 사항 추출
-        keyword_worker(reviews)          # 핵심 키워드 추출
-    )
-    return results
+import asyncio
+from src.utils.agent import llm_search_async
 
-# 각 워커는 전용 시스템 프롬프트 + Structured Output
+async def collect_all(tasks: list[CollectionTask]) -> list[str]:
+    results = await asyncio.gather(
+        *[collect_worker(task) for task in tasks]
+    )
+    return [review for batch in results for review in batch]
+
+async def collect_worker(task: CollectionTask) -> list[str]:
+    prompt = f"""
+    아래 조건에 맞는 제품 리뷰와 사용자 반응을 웹에서 찾아 요약하세요.
+    - source: {task.source}
+    - query: {task.query}
+    - target_count: {task.target_count}
+    - 리뷰, 후기, 비교 글, 커뮤니티 반응 위주로 수집
+    - 중복은 제거
+    """
+    result = await llm_search_async(prompt, model="gpt-4o-mini")
+    return [result]
+```
+
+- 모델: `gpt-4o-mini`
+- 검색 도구: OpenAI Responses API `tools=[{"type": "web_search"}]`
+
+## ④ 프롬프트 체이닝 전처리
+
+수집된 원시 리뷰를 3개 LLM이 순차적으로 정제합니다.
+
+```text
+raw_reviews
+    ↓
+[LLM1: Clean Agent]
+HTML 제거, 중복 제거, 5자 이하 필터링
+    ↓
+[LLM2: Normalize Agent]
+구어체 → 표준어, 신조어 해석, 맥락 보완
+    ↓
+[LLM3: Filter Agent]
+광고성 리뷰 탐지 및 제거, 신뢰도 점수 부여 (0.0 ~ 1.0)
+신뢰도 0.5 미만 제거
+    ↓
+filtered_reviews (신뢰도 높은 리뷰만)
+```
+
+- 모델: 3단계 모두 `gpt-4o-mini`
+- Batch API 활용 시 비용 절감 가능
+
+## ⑤ 병렬 분석 Workers
+
+전처리된 리뷰를 3개 분석 워커가 동시에 처리합니다.
+
+```python
+async def analyze_parallel(reviews: list[str]):
+    sentiment, reasons, complaints = await asyncio.gather(
+        sentiment_worker(reviews),
+        purchase_reason_worker(reviews),
+        complaint_worker(reviews),
+    )
+    return sentiment, reasons, complaints
+```
+
+### 워커 출력 스키마
+
+```python
 class SentimentResult(BaseModel):
-    score: float          # -1.0 ~ 1.0
-    label: str            # 긍정/부정/중립
-    evidence: list[str]   # 근거 리뷰 문장
+    score: float           # -1.0 ~ 1.0
+    label: str             # "긍정" | "부정" | "중립"
+    positive_ratio: float
+    negative_ratio: float
+    neutral_ratio: float
+    evidence: list[str]
 
 class PurchaseReasonResult(BaseModel):
-    reasons: list[str]
-    frequency: dict[str, int]
+    top_reasons: list[str]
+    reason_frequency: dict
+    key_selling_points: list[str]
+
+class ComplaintResult(BaseModel):
+    top_complaints: list[str]
+    complaint_frequency: dict
+    severity: str          # "low" | "medium" | "high"
+    critical_issues: list[str]
 ```
 
-## ⑥ 어그리게이터: 종합 리포트
+- 모델: `gpt-4o-mini`
 
-4개 워커 결과를 하나의 인사이트 리포트로 종합합니다.
+## ⑥ 어그리게이터 (Aggregator LLM)
+
+3개 워커 결과를 받아 최종 제품 평가 판정을 내립니다.
 
 ```python
-AGGREGATOR_PROMPT = """
-감정분석, 구매이유, 불만, 키워드 분석 결과를 종합해서
-소비자 심리 인사이트 리포트를 작성하세요.
-
-- 핵심 구매 동기 Top 3
-- 주요 불만 클러스터 Top 3
-- 감정 분포 요약
-- 마케팅 시사점
-"""
+class AggregatedReport(BaseModel):
+    product_name: str
+    overall_score: float
+    verdict: str                # "긍정" | "중립" | "네거티브"
+    summary: str
+    strengths: list[str]
+    weaknesses: list[str]
+    recommendation: str         # "구매 추천" | "조건부 추천" | "비추천"
+    find_competitor: bool
 ```
 
-## ⑦ 평가 & 최적화 루프
+### 판정 기준
 
-마지막으로 평가 LLM이 결과 품질을 검증하고, 기준 미달 시 재처리합니다.
+- `overall_score < 5.5` 또는 `severity == "high"` → `find_competitor = True`
+- `sentiment_score < -0.2` → `find_competitor = True`
+
+- 모델: `gpt-4o`
+
+## ⑦ 경쟁 제품 탐색
+
+네거티브 판정 시에만 실행합니다.
+
+### 7-1. 경쟁 제품 목록 수집
+
+```python
+queries = [
+    f"{product_name} 대안 추천 2025",
+    f"{product_name} 경쟁 제품 비교",
+    f"{category} 추천 {price_range}",
+]
+```
+
+### 7-2. 경쟁 제품 병렬 분석
+
+각 후보 제품에 대해 ③~⑥ 미니 파이프라인을 병렬 실행합니다.
+
+### 7-3. 경쟁력 비교 스키마
+
+```python
+class CompetitorScore(BaseModel):
+    product_name: str
+    price: int
+    price_score: float
+    value_for_money: float
+    emotional_value: float
+    quality_score: float
+    overall_score: float
+    pros: list[str]
+    cons: list[str]
+    verdict: str
+
+class ComparisonReport(BaseModel):
+    original_product: CompetitorScore
+    competitors: list[CompetitorScore]
+    best_pick: str
+    best_pick_reason: str
+```
+
+- 모델: `gpt-4o`
+
+## 최종 출력 예시
 
 ```text
-어그리게이터 결과
-        ↓
-  평가 LLM 체크
-  - 근거 있는 분석인가?
-  - 리뷰 수가 충분한가?
-  - 논리적 모순 없는가?
-        ↓
-  [PASS] → 최종 출력
-  [FAIL] → 부족한 워커만 재실행 (partial retry)
+[갤럭시 S25 울트라] 소비 심리 분석 리포트
+────────────────────────────────
+종합 점수:     4.8 / 10   🔴네거티브
+감정 분포:     긍정 38% | 중립 22% | 부정 40%
+구매 이유 Top3: 카메라 화질, S펜, 삼성 생태계
+주요 불만 Top3: 발열 문제, 가격 부담, 무게
+
+더 경쟁력 있는 대안 제품
+────────────────────────────────
+1위 아이폰 16 Pro
+가격: 155만원 | 가성비 7.2 | 가심비 9.1 | 품질 9.0
+
+2위 픽셀 9 Pro
+가격: 119만원 | 가성비 8.5 | 가심비 7.0 | 품질 8.2
+
+3위 갤럭시 S25+
+가격: 135만원 | 가성비 7.8 | 가심비 7.5 | 품질 7.9
 ```
-
-```python
-class EvaluationResult(BaseModel):
-    passed: bool
-    score: float           # 0.0 ~ 1.0
-    weak_areas: list[str]  # ["complaint_analysis", ...]
-    retry_nodes: list[str] # 재실행할 노드 이름
-```
-
-## LangGraph 전체 State 구조
-
-```python
-class AnalyzerState(TypedDict):
-    # 입력
-    product_name: str
-
-    # 라우터
-    routing_strategy: RoutingStrategy
-
-    # 오케스트레이터
-    collection_tasks: list[CollectionTask]
-
-    # 수집
-    raw_reviews: list[str]
-
-    # 전처리 체이닝
-    cleaned_reviews: list[str]
-    normalized_reviews: list[str]
-    filtered_reviews: list[str]
-
-    # 병렬 분석
-    sentiment_result: SentimentResult
-    purchase_result: PurchaseReasonResult
-    complaint_result: ComplaintResult
-    keyword_result: KeywordResult
-
-    # 최종
-    final_report: dict
-    eval_result: EvaluationResult
-    retry_count: int       # 무한루프 방지
-```
-
-## 패턴별 역할 요약
-
-| 패턴 | 적용 위치 | 사용 모델 |
-| --- | --- | --- |
-| 라우팅 | 분석 전략 결정 | gpt-4o-mini |
-| 오케스트레이터-워커 | 수집 태스크 분해 | gpt-4o-mini |
-| 병렬 처리 | 소스 수집, 4대 분석 | gpt-4o-mini x N |
-| 프롬프트 체이닝 | 전처리 3단계 | gpt-4o-mini |
-| 평가 & 최적화 | 결과 품질 검증 | gpt-4o (고성능) |
-
-어그리게이터와 평가 LLM만 `gpt-4o`를 쓰고 나머지는 `gpt-4o-mini`로 처리하면 품질과 비용을 동시에 잡을 수 있습니다.
