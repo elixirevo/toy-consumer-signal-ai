@@ -73,6 +73,8 @@ async def _run_single_product_analysis(
             "product_name": routing_strategy.product_name,
             "sources": routing_strategy.sources,
             "depth": routing_strategy.depth,
+            "user_context": routing_strategy.user_context.summary,
+            "review_focus": routing_strategy.review_focus,
         },
     )
 
@@ -233,6 +235,7 @@ async def run_analysis_pipeline(
                     candidate_payloads = [
                         AnalyzeRequest(
                             raw_query=f"{candidate} 리뷰 분석해줘",
+                            user_context_hint=primary.routing_strategy.user_context,
                             options=payload.options,
                         )
                         for candidate in competitor_candidates

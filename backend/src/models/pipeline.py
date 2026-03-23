@@ -11,9 +11,23 @@ class RouterOptions(BaseModel):
     date_range: str = "3months"
 
 
+class UserContext(BaseModel):
+    target_user: str = "일반 사용자"
+    usage_context: str = "특수한 사용 상황 정보 없음"
+    purchase_goal: str = "제품 전반의 적합도 확인"
+    priorities: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    summary: str = "특별한 개인 상황 정보 없음"
+
+
 class AnalyzeRequest(BaseModel):
     raw_query: str = Field(description="사용자 자연어 입력")
     product_url: str | None = Field(default=None, description="제품 링크")
+    user_context_hint: UserContext | None = Field(
+        default=None,
+        description="내부 파이프라인용 사용자 상황 힌트",
+        repr=False,
+    )
     api_key: str | None = Field(
         default=None,
         description="요청 단위 OpenAI API Key",
@@ -32,6 +46,8 @@ class RoutingStrategy(BaseModel):
     depth: Literal["quick", "deep"]
     language: Literal["ko", "en", "both"]
     date_range: str
+    user_context: UserContext = Field(default_factory=UserContext)
+    review_focus: list[str] = Field(default_factory=list)
 
 
 class CollectionTask(BaseModel):

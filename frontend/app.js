@@ -15,6 +15,19 @@ const historyList = document.getElementById("history-list");
 const emptyState = document.getElementById("empty-state");
 const resultContent = document.getElementById("result-content");
 const summaryGrid = document.getElementById("summary-grid");
+const heroPanel = document.querySelector(".hero-panel");
+const previewSummary = document.getElementById("preview-summary");
+const previewScore = document.getElementById("preview-score");
+const previewSentimentHeadline = document.getElementById("preview-sentiment-headline");
+const previewSentimentMeta = document.getElementById("preview-sentiment-meta");
+const previewReasons = document.getElementById("preview-reasons");
+const previewRecommendation = document.getElementById("preview-recommendation");
+const previewStepCollect = document.getElementById("preview-step-collect");
+const previewStepAnalyze = document.getElementById("preview-step-analyze");
+const previewStepCompare = document.getElementById("preview-step-compare");
+const previewBarPositive = document.getElementById("preview-bar-positive");
+const previewBarNeutral = document.getElementById("preview-bar-neutral");
+const previewBarNegative = document.getElementById("preview-bar-negative");
 const routingStrategyBox = document.getElementById("routing-strategy");
 const sentimentBox = document.getElementById("sentiment-result");
 const purchaseBox = document.getElementById("purchase-result");
@@ -28,6 +41,24 @@ const API_BASE_STORAGE_KEY = "consumer-signal-ai-api-base-url";
 const ANALYSIS_HISTORY_STORAGE_KEY = "consumer-signal-ai-analysis-history";
 const MAX_HISTORY_ITEMS = 8;
 const DEFAULT_REMOTE_API_BASE_URL = "https://toy-consumer-signal-back.vercel.app/";
+const DEFAULT_PREVIEW_STATE = {
+  summary: "실제 조회 전에는 샘플 내용이 표시됩니다.",
+  score: "7.8",
+  sentimentHeadline: "긍정 우세",
+  sentimentMeta: "긍정 68% · 중립 21% · 부정 11%",
+  reasons: "디자인 · 성능 · 만족감",
+  recommendation: "구매 추천 시그널",
+  steps: {
+    collect: "샘플 120건 기준",
+    analyze: "긍정 의견 우세",
+    compare: "후보 비교 대기",
+  },
+  bars: {
+    positive: 86,
+    neutral: 58,
+    negative: 32,
+  },
+};
 let progressSequence = 0;
 
 function getDefaultApiBaseUrl() {
@@ -263,6 +294,207 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function clampPercentage(value) {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+
+  const normalized = numeric >= 0 && numeric <= 1 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(normalized)));
+}
+
+function formatPercent(value) {
+  return `${clampPercentage(value)}%`;
+}
+
+function formatPreviewScore(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(1) : "-";
+}
+
+function getPreviewSentimentHeadline(sentiment) {
+  const entries = [
+    ["긍정", Number(sentiment?.positive_ratio) || 0],
+    ["중립", Number(sentiment?.neutral_ratio) || 0],
+    ["부정", Number(sentiment?.negative_ratio) || 0],
+  ].sort((left, right) => right[1] - left[1]);
+  const tieThreshold = entries[0][1] > 1 ? 8 : 0.08;
+
+  if (Math.abs(entries[0][1] - entries[1][1]) < tieThreshold) {
+    return "의견 혼재";
+  }
+
+  if (entries[0][0] === "긍정") {
+    return "긍정 우세";
+  }
+
+  if (entries[0][0] === "부정") {
+    return "부정 우세";
+  }
+
+  return "중립 반응 우세";
+}
+
+function getPreviewReasons(purchase) {
+  const candidates = purchase?.top_reasons?.length
+    ? purchase.top_reasons
+    : purchase?.key_selling_points || [];
+
+  return candidates.filter(Boolean).slice(0, 3).join(" · ") || "핵심 구매 이유 없음";
+}
+
+function getPreviewCompareStatus(data) {
+  if (!data?.aggregated_report?.find_competitor) {
+    return "탐색 불필요";
+  }
+
+  if (data?.competitor_report?.best_pick) {
+    return `추천 대안 ${data.competitor_report.best_pick}`;
+  }
+
+  if ((data?.competitor_candidates || []).length > 0) {
+    return `후보 ${data.competitor_candidates.length}개 확보`;
+  }
+
+  return "비교 조건 충족";
+}
+
+function getHeroPanelToneFromVerdict(verdict) {
+  if (verdict === "네거티브" || verdict === "부정") {
+    return "negative";
+  }
+
+  if (verdict === "중립") {
+    return "neutral";
+  }
+
+  if (verdict === "긍정") {
+    return "positive";
+  }
+
+  return "default";
+}
+
+function setHeroPanelTone(tone = "default") {
+  if (!heroPanel) {
+    return;
+  }
+
+  heroPanel.dataset.previewTone = tone;
+}
+
+function setPreviewBarWidth(element, width) {
+  element.style.width = `${clampPercentage(width)}%`;
+}
+
+function applyPreviewState(state) {
+  previewSummary.textContent = state.summary;
+  previewSummary.title = state.summary;
+  previewScore.textContent = state.score;
+  previewSentimentHeadline.textContent = state.sentimentHeadline;
+  previewSentimentHeadline.title = state.sentimentHeadline;
+  previewSentimentMeta.textContent = state.sentimentMeta;
+  previewReasons.textContent = state.reasons;
+  previewReasons.title = state.reasons;
+  previewRecommendation.textContent = state.recommendation;
+  previewRecommendation.title = state.recommendation;
+  previewStepCollect.textContent = state.steps.collect;
+  previewStepCollect.title = state.steps.collect;
+  previewStepAnalyze.textContent = state.steps.analyze;
+  previewStepAnalyze.title = state.steps.analyze;
+  previewStepCompare.textContent = state.steps.compare;
+  previewStepCompare.title = state.steps.compare;
+  setPreviewBarWidth(previewBarPositive, state.bars.positive);
+  setPreviewBarWidth(previewBarNeutral, state.bars.neutral);
+  setPreviewBarWidth(previewBarNegative, state.bars.negative);
+}
+
+function resetHeroPreview() {
+  setHeroPanelTone("default");
+  applyPreviewState(DEFAULT_PREVIEW_STATE);
+}
+
+function renderLoadingPreview(rawQuery) {
+  setHeroPanelTone("default");
+  applyPreviewState({
+    summary: `${rawQuery} 관련 리뷰를 수집하고 있습니다.`,
+    score: "...",
+    sentimentHeadline: "분석 준비 중",
+    sentimentMeta: "리뷰 감정 분류 대기",
+    reasons: "구매 이유 추출 대기",
+    recommendation: "종합 판단 계산 중",
+    steps: {
+      collect: "웹 리뷰 수집 시작",
+      analyze: "감정·이유 분석 대기",
+      compare: "비교 조건 확인 중",
+    },
+    bars: {
+      positive: 72,
+      neutral: 52,
+      negative: 24,
+    },
+  });
+}
+
+function renderFailedPreview(rawQuery) {
+  setHeroPanelTone("default");
+  applyPreviewState({
+    summary: `${rawQuery} 조회 결과를 불러오지 못했습니다.`,
+    score: "-",
+    sentimentHeadline: "결과 없음",
+    sentimentMeta: "응답을 다시 확인해 주세요.",
+    reasons: "프리뷰를 생성하지 못했습니다.",
+    recommendation: "재시도 필요",
+    steps: {
+      collect: "응답 실패",
+      analyze: "결과 없음",
+      compare: "진행 안 됨",
+    },
+    bars: {
+      positive: 0,
+      neutral: 0,
+      negative: 0,
+    },
+  });
+}
+
+function renderHeroPreview(data) {
+  const report = data?.aggregated_report || {};
+  const sentiment = data?.sentiment || {};
+  const reviewSummary = [
+    Number.isFinite(data?.raw_review_count) ? `원문 ${data.raw_review_count}건` : null,
+    Number.isFinite(data?.preprocessed_review_count)
+      ? `정제 ${data.preprocessed_review_count}건`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  applyPreviewState({
+    summary: [report.product_name, report.summary].filter(Boolean).join(" · ") || DEFAULT_PREVIEW_STATE.summary,
+    score: formatPreviewScore(report.overall_score),
+    sentimentHeadline: getPreviewSentimentHeadline(sentiment),
+    sentimentMeta: `긍정 ${formatPercent(sentiment.positive_ratio)} · 중립 ${formatPercent(
+      sentiment.neutral_ratio
+    )} · 부정 ${formatPercent(sentiment.negative_ratio)}`,
+    reasons: getPreviewReasons(data?.purchase_reasons),
+    recommendation: report.recommendation || "추천 판단 대기",
+    steps: {
+      collect: reviewSummary || "수집량 정보 없음",
+      analyze: [report.verdict, report.recommendation].filter(Boolean).join(" · ") || "분석 결과 없음",
+      compare: getPreviewCompareStatus(data),
+    },
+    bars: {
+      positive: sentiment.positive_ratio,
+      neutral: sentiment.neutral_ratio,
+      negative: sentiment.negative_ratio,
+    },
+  });
+  setHeroPanelTone(getHeroPanelToneFromVerdict(report.verdict));
+}
+
 function renderList(items, emptyMessage = "데이터 없음") {
   if (!items || items.length === 0) {
     return `<p>${escapeHtml(emptyMessage)}</p>`;
@@ -321,12 +553,17 @@ function renderRoutingStrategy(strategy, tasks, reviewCounts) {
   const sourceChips = (strategy.sources || [])
     .map((source) => `<span class="chip neutral">${escapeHtml(source)}</span>`)
     .join("");
+  const reviewFocusChips = (strategy.review_focus || [])
+    .map((focus) => `<span class="chip">${escapeHtml(focus)}</span>`)
+    .join("");
+  const userContext = strategy.user_context || {};
 
   routingStrategyBox.innerHTML = `
     ${renderKeyValues([
       ["제품명", strategy.product_name],
       ["카테고리", strategy.product_category],
       ["브랜드", strategy.brand],
+      ["사용자 상황", userContext.summary || "일반 사용자 기준"],
       ["리뷰 수집량", `${strategy.review_count_per_source} / source`],
       ["분석 깊이", strategy.depth],
       ["언어", strategy.language],
@@ -336,6 +573,9 @@ function renderRoutingStrategy(strategy, tasks, reviewCounts) {
       ["생성 태스크 수", String(tasks.length)],
     ])}
     <div class="metric-row">${sourceChips || "<span class='chip neutral'>source 없음</span>"}</div>
+    <div class="metric-row">${
+      reviewFocusChips || "<span class='chip neutral'>개인화 포인트 없음</span>"
+    }</div>
   `;
 }
 
@@ -462,6 +702,7 @@ function renderResponse(data) {
   emptyState.classList.add("hidden");
   resultContent.classList.remove("hidden");
 
+  renderHeroPreview(data);
   renderSummary(data);
   renderRoutingStrategy(data.routing_strategy, data.collection_tasks || [], {
     raw_review_count: data.raw_review_count,
@@ -478,6 +719,7 @@ function renderResponse(data) {
 function clearRenderedResult() {
   resultContent.classList.add("hidden");
   emptyState.classList.remove("hidden");
+  resetHeroPreview();
   summaryGrid.innerHTML = "";
   routingStrategyBox.innerHTML = "";
   sentimentBox.innerHTML = "";
@@ -597,7 +839,8 @@ function clearHistory() {
 }
 
 function fillSample() {
-  rawQueryInput.value = "다이슨 에어랩 리뷰 분석해줘";
+  rawQueryInput.value =
+    "허리가 약한 1인 가구인데 다이슨 V12 Detect Slim이 가볍고 청소하기 편한지 리뷰 분석해줘";
   productUrlInput.value = "";
   apiKeyInput.value = "";
   setCustomSelectValue("depth", "deep");
@@ -627,6 +870,7 @@ async function handleSubmit(event) {
   submitButton.disabled = true;
   resetProgress();
   clearRenderedResult();
+  renderLoadingPreview(payload.raw_query);
   setStatus("loading", "분석 파이프라인 실행 중입니다. 검색과 LLM 단계가 순차/병렬로 진행됩니다.");
 
   try {
@@ -700,6 +944,7 @@ async function handleSubmit(event) {
     persistAnalysisHistory(payload, finalResult);
     setStatus("success", "분석이 완료되었습니다.");
   } catch (error) {
+    renderFailedPreview(payload.raw_query);
     setStatus("error", `요청 실패: ${error.message}`);
   } finally {
     submitButton.disabled = false;

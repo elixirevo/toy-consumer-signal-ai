@@ -18,10 +18,20 @@ def build_competitor_queries(
     aggregated_report: AggregatedReport,
 ) -> list[str]:
     weakness_hint = ", ".join(aggregated_report.weaknesses[:2]) or "단점"
+    focus_hint = " ".join(strategy.review_focus[:2]).strip()
+    user_hint = (
+        strategy.user_context.summary
+        if strategy.user_context.summary != "특별한 개인 상황 정보 없음"
+        else ""
+    )
     return [
-        f"{strategy.product_name} 대안 추천",
-        f"{strategy.product_category} 추천 {weakness_hint}",
-        f"{strategy.product_name} 경쟁 제품 비교",
+        " ".join(part for part in [strategy.product_name, user_hint, "대안 추천"] if part).strip(),
+        " ".join(
+            part
+            for part in [strategy.product_category, focus_hint, weakness_hint, "추천"]
+            if part
+        ).strip(),
+        " ".join(part for part in [strategy.product_name, focus_hint, "경쟁 제품 비교"] if part).strip(),
     ]
 
 
@@ -114,6 +124,11 @@ async def compare_competitors(
 - verdict는 "강력 추천", "추천", "조건부 추천", "비추천" 중 하나
 - best_pick은 후보 제품 중 가장 경쟁력 있는 제품명이다.
 - best_pick_reason은 한두 문단이 아니라 짧고 명확한 문장으로 작성한다.
+- 비교 기준은 일반 평균 사용자가 아니라 아래 user_context를 우선 반영한다.
+- user_context의 priorities / constraints / usage_context를 충족하는 후보를 더 높게 평가한다.
+
+사용자 상황:
+{json.dumps(original.routing_strategy.user_context.model_dump(), ensure_ascii=False, indent=2)}
 
 원제품:
 {json.dumps(original.aggregated_report.model_dump(), ensure_ascii=False, indent=2)}

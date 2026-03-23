@@ -16,6 +16,8 @@ ORCHESTRATOR_PROMPT = """
 - 각 task는 source, query, target_count를 포함한다.
 - query는 실제 웹 검색에 바로 사용할 수 있게 구체적으로 만든다.
 - product_name, brand, category를 반영해 리뷰/후기/단점/비교 관점 질의를 섞는다.
+- user_context와 review_focus가 있으면 query에 자연스럽게 반영한다.
+- query는 제품 자체 리뷰뿐 아니라 사용자의 상황과 관련된 실사용 맥락을 찾을 수 있어야 한다.
 - estimated_reviews는 전체 기대 리뷰 수다.
 """.strip()
 
@@ -51,15 +53,27 @@ def _fallback_tasks(strategy: RoutingStrategy) -> OrchestratorOutput:
         "danawa": "리뷰 장단점",
         "oliveyoung": "후기 만족도",
     }
+    focus_terms = (
+        strategy.review_focus
+        or strategy.user_context.priorities
+        or strategy.user_context.constraints
+    )[: max(1, len(strategy.sources))]
 
-    tasks = [
-        CollectionTask(
-            source=source,
-            query=f"{strategy.product_name} {suffix_map.get(source, '리뷰')}",
-            target_count=strategy.review_count_per_source,
+    tasks = []
+    for index, source in enumerate(strategy.sources):
+        parts = [strategy.product_name]
+        if focus_terms:
+            parts.append(focus_terms[index % len(focus_terms)])
+        parts.append(suffix_map.get(source, "리뷰"))
+
+        tasks.append(
+            CollectionTask(
+                source=source,
+                query=" ".join(part for part in parts if part).strip(),
+                target_count=strategy.review_count_per_source,
+            )
         )
-        for source in strategy.sources
-    ]
+
     return OrchestratorOutput(
         tasks=tasks,
         estimated_reviews=len(tasks) * strategy.review_count_per_source,

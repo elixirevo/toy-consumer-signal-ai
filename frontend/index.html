@@ -20,7 +20,7 @@
             <p class="eyebrow">Consumer Signal AI</p>
             <span class="hero-badge">OpenAI Pipeline</span>
           </div>
-          <h1>리뷰를 근거로, 현명한 소비를.</h1>
+          <h1>리뷰를 근거로, <br />현명한 소비를.</h1>
           <p class="hero-text">
             제품명이나 링크만 넣으면 감정, 구매 이유, 불만, 대체 제품 추천까지 한 번에 정리합니다.
           </p>
@@ -35,38 +35,54 @@
             <div>
               <p class="preview-label">Live Analysis Preview</p>
               <h2 class="preview-title">구매 판단 요약</h2>
+              <p id="preview-summary" class="preview-summary">
+                실제 조회 전에는 샘플 내용이 표시됩니다.
+              </p>
             </div>
             <div class="score-orb">
-              <span>7.8</span>
+              <span id="preview-score">7.8</span>
             </div>
           </div>
           <div class="preview-grid">
             <article class="preview-card">
               <span class="preview-card-label">감정 흐름</span>
-              <strong>긍정 우세</strong>
+              <strong id="preview-sentiment-headline">긍정 우세</strong>
               <div class="preview-bars">
-                <span class="bar strong"></span>
-                <span class="bar medium"></span>
-                <span class="bar weak"></span>
+                <span id="preview-bar-positive" class="bar positive" style="width: 86%"></span>
+                <span id="preview-bar-neutral" class="bar neutral" style="width: 58%"></span>
+                <span id="preview-bar-negative" class="bar negative" style="width: 32%"></span>
               </div>
+              <p id="preview-sentiment-meta" class="preview-card-meta">
+                긍정 68% · 중립 21% · 부정 11%
+              </p>
             </article>
             <article class="preview-card">
               <span class="preview-card-label">핵심 구매 이유</span>
-              <strong>디자인 · 성능 · 만족감</strong>
+              <strong id="preview-reasons">디자인 · 성능 · 만족감</strong>
+              <p id="preview-recommendation" class="preview-card-meta">구매 추천 시그널</p>
             </article>
           </div>
           <div class="preview-timeline">
             <div class="preview-step">
               <span class="step-dot"></span>
-              <span>리뷰 수집</span>
+              <div class="preview-step-copy">
+                <span class="preview-step-label">리뷰 수집</span>
+                <strong id="preview-step-collect" class="preview-step-status">샘플 120건 기준</strong>
+              </div>
             </div>
             <div class="preview-step">
               <span class="step-dot"></span>
-              <span>소비 심리 분석</span>
+              <div class="preview-step-copy">
+                <span class="preview-step-label">소비 심리 분석</span>
+                <strong id="preview-step-analyze" class="preview-step-status">긍정 의견 우세</strong>
+              </div>
             </div>
             <div class="preview-step">
               <span class="step-dot"></span>
-              <span>대체 제품 비교</span>
+              <div class="preview-step-copy">
+                <span class="preview-step-label">대체 제품 비교</span>
+                <strong id="preview-step-compare" class="preview-step-status">후보 비교 대기</strong>
+              </div>
             </div>
           </div>
         </div>
@@ -115,9 +131,9 @@
                 id="raw-query"
                 name="rawQuery"
                 rows="5"
-                placeholder="예: 갤럭시 S25 울트라 리뷰 분석해줘"
+                placeholder="예: 허리가 약한 1인 가구인데 다이슨 V12 Detect Slim이 가볍고 쓰기 편한지 리뷰 분석해줘"
                 required
-              >갤럭시 S25 울트라 리뷰 분석해줘</textarea>
+              >갤럭시 S25 울트라가 출퇴근이 많은 직장인에게 배터리와 무게 면에서 괜찮은지 리뷰 분석해줘</textarea>
             </label>
 
             <label class="field">
